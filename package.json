@@ -1,0 +1,27 @@
+{
+  "name": "whatsapp-ai-agent",
+  "version": "1.0.0",
+  "description": "",
+  "homepage": "https://github.com/rohandagale-dev/WhatsApp-AI-Agent#readme",
+  "bugs": {
+    "url": "https://github.com/rohandagale-dev/WhatsApp-AI-Agent/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rohandagale-dev/WhatsApp-AI-Agent.git"
+  },
+  "license": "ISC",
+  "author": "rohandagale.dev",
+  "type": "commonjs",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "^7.0.0-rc.9",
+    "axios": "^1.13.6",
+    "dotenv": "^17.3.1",
+    "express": "^5.2.1",
+    "qrcode-terminal": "^0.12.0"
+  }
+}
