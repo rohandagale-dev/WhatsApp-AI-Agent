@@ -1,0 +1,101 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Persona {
+  id            Int      @id @default(autoincrement())
+  name          String
+
+  tone          String?   // friendly, formal, rude, sales
+  style         String?   // short, long, witty
+  systemPrompt  String?   // actual AI instruction
+
+  language      String?   // comma-separated values like: marathi, hindi, english, hinglish
+  responseDelay Int?      // simulate human delay (ms)
+
+  isActive      Boolean   @default(true)
+
+  contacts      Contact[]
+
+  createdAt     DateTime  @default(now())
+}
+
+model Contact {
+  id          Int      @id @default(autoincrement())
+
+  name        String?
+  phone       String   @unique
+
+  personaId   Int
+  persona     Persona  @relation(fields: [personaId], references: [id])
+
+  tags        Tag[]    // Many-to-many relationship
+  notes       String?  // custom notes
+
+  lastSeenAt      DateTime?
+  lastMessageAt   DateTime? // Suggested: Useful for sorting chats
+  isBlocked       Boolean  @default(false)
+
+  chats       Chat[]
+  insights    Insight[]
+  relationPerson RelationPerson?
+
+  createdAt   DateTime @default(now())
+}
+
+model Tag {
+  id        Int       @id @default(autoincrement())
+  name      String    @unique
+  contacts  Contact[]
+}
+
+model Chat {
+  id          Int      @id @default(autoincrement())
+
+  contactId   Int
+  contact     Contact  @relation(fields: [contactId], references: [id])
+
+  message     String
+  direction   MessageDirection
+
+  status      String?   // sent, delivered, read
+  metadata    Json?     // attachments, AI data
+
+  createdAt   DateTime  @default(now())
+}
+
+enum MessageDirection {
+  INCOMING
+  OUTGOING
+}
+
+model Insight {
+  id           Int      @id @default(autoincrement())
+  contactId    Int
+  contact      Contact  @relation(fields: [contactId], references: [id])
+  summary      String
+  messageCount Int      // Count at which insight was generated
+  createdAt    DateTime @default(now())
+}
+
+model RelationPerson {
+  id            Int      @id @default(autoincrement())
+  contactId     Int      @unique
+  contact       Contact  @relation(fields: [contactId], references: [id])
+
+  myPersona     String?  // Bot's persona for this contact
+  myDictionary  String?  // Comma-separated words/phrases
+  userPersona   String?  // Description of the user
+  style         String?  // Writing style
+  rules         String?  // Rules for interaction
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@map("relation_person")
+}
