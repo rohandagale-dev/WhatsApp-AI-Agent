@@ -4,10 +4,9 @@ const pino = require("pino");
 const { generateResponse: generateGeminiResponse } = require("./geminiService");
 const { generateResponse: generateGroqResponse } = require("./groqService");
 const { generateResponse: generateOllamaResponse } = require("./ollamaService");
-const { PrismaClient } = require("@prisma/client");
+const { supabase } = require("./supabaseClient");
 const { buildDynamicPrompt } = require("./promptService");
 
-const prisma = new PrismaClient();
 let currentSock = null;
 const pendingTimers = new Map();
 
@@ -77,20 +76,22 @@ async function startWhatsApp() {
     async function generateAndStoreInsight(contactId, phoneNumber) {
         console.log(`--- Generating AI Insight for ${phoneNumber} ---`);
         try {
-            const lastMessages = await prisma.chat.findMany({
-                where: { contactId },
-                orderBy: { createdAt: "desc" },
-                take: INSIGHT_THRESHOLD
-            });
+            const { data: lastMessages, error } = await supabase
+                .from('chats')
+                .select('*')
+                .eq('contact_id', contactId)
+                .order('created_at', { ascending: false })
+                .limit(INSIGHT_THRESHOLD);
 
-            if (lastMessages.length < 5) return;
+            if (error) throw error;
+            if (!lastMessages || lastMessages.length < 5) return;
 
             const historyText = lastMessages.reverse().map(m => `${m.direction}: ${m.message}`).join("\n");
             const summarizationPrompt = `Summarize the following WhatsApp conversation between Rohan and a contact into a single, concise paragraph (max 2-3 sentences). Focus on core topics and the current status.\n\nCONVERSATION:\n${historyText}`;
             const systemPromptMessage = [{ role: "system", content: "You are a helpful assistant that summarizes conversations concisely." }];
 
             const aiVersion = process.env.AI_VERSION || 'v1';
-            let summary;
+            let summaryResponse;
             if (aiVersion === 'v3') {
                 summaryResponse = await generateOllamaResponse(summarizationPrompt, systemPromptMessage);
             } else if (aiVersion === 'v2') {
@@ -104,12 +105,17 @@ async function startWhatsApp() {
                 const { usage } = summaryResponse;
                 console.log(`[INSIGHT TOKENS] In: ${usage.promptTokens} Out: ${usage.completionTokens} Total: ${usage.totalTokens}`);
 
-                await prisma.insight.create({
-                    data: {
-                        contactId,
-                        summary: summary,
-                        messageCount: await prisma.chat.count({ where: { contactId } })
-                    }
+                const { count, error: countErr } = await supabase
+                    .from('chats')
+                    .select('*', { count: 'exact', head: true })
+                    .eq('contact_id', contactId);
+                
+                if (countErr) throw countErr;
+
+                await supabase.from('insights').insert({
+                    contact_id: contactId,
+                    summary: summary,
+                    message_count: count
                 });
                 console.log(`Stored insight for ${phoneNumber}`);
             }
@@ -136,63 +142,56 @@ async function startWhatsApp() {
         if (!text) return;
 
         // 1. Fetch or create Contact and Persona
-        let contact = await prisma.contact.findUnique({
-            where: { phone: phoneNumber },
-            include: { 
-                persona: true,
-                relationPerson: true 
-            }
-        });
+        let { data: contact } = await supabase
+            .from('contacts')
+            .select('*, persona:personas(*), relationPerson:relation_persons(*)')
+            .eq('phone', phoneNumber)
+            .maybeSingle();
 
         if (!contact) {
             console.log(`Creating new contact for ${phoneNumber}...`);
-            // Attempt to find the "Rohan" persona first, then fallback to "Default"
-            let targetPersona = await prisma.persona.findFirst({ where: { name: "Rohan" } });
+            let { data: targetPersonas } = await supabase.from('personas').select('*').eq('name', 'Rohan').limit(1);
+            let targetPersona = targetPersonas && targetPersonas.length > 0 ? targetPersonas[0] : null;
             
             if (!targetPersona) {
-                targetPersona = await prisma.persona.findFirst({ where: { name: "Default" } });
+                let { data: defPersonas } = await supabase.from('personas').select('*').eq('name', 'Default').limit(1);
+                targetPersona = defPersonas && defPersonas.length > 0 ? defPersonas[0] : null;
             }
 
             if (!targetPersona) {
                 console.log("Creating default persona...");
-                targetPersona = await prisma.persona.create({
-                    data: {
-                        name: "Default",
-                        tone: "chill",
-                        style: "conversational",
-                        systemPrompt: "You are Rohan, chill and slightly sarcastic. Reply briefly."
-                    }
-                });
+                const { data: newPersona } = await supabase.from('personas').insert({
+                    name: "Default",
+                    tone: "chill",
+                    style: "conversational",
+                    system_prompt: "You are Rohan, chill and slightly sarcastic. Reply briefly."
+                }).select().single();
+                targetPersona = newPersona;
             }
             
-            contact = await prisma.contact.create({
-                data: { phone: phoneNumber, personaId: targetPersona.id },
-                include: { 
-                    persona: true,
-                    relationPerson: true 
-                }
-            });
+            const { data: newContact } = await supabase.from('contacts').insert({
+                phone: phoneNumber,
+                persona_id: targetPersona.id
+            }).select('*, persona:personas(*), relationPerson:relation_persons(*)').single();
+            contact = newContact;
         }
         console.log(`[CONTACT] Loaded contact for ${phoneNumber} (ID: ${contact.id})`);
 
         // 2. Store outgoing message
         if (msg.key.fromMe) {
-            await prisma.chat.create({
-                data: { contactId: contact.id, message: text, direction: "OUTGOING" }
+            await supabase.from('chats').insert({
+                contact_id: contact.id, message: text, direction: "OUTGOING"
             });
             return;
         }
 
         // 3. Log incoming message
         console.log(`[INCOMING] from ${phoneNumber}: "${text}"`);
-        await prisma.$transaction([
-            prisma.chat.create({
-                data: { contactId: contact.id, message: text, direction: "INCOMING" }
+        await Promise.all([
+            supabase.from('chats').insert({
+                contact_id: contact.id, message: text, direction: "INCOMING"
             }),
-            prisma.contact.update({
-                where: { id: contact.id },
-                data: { lastMessageAt: new Date() }
-            })
+            supabase.from('contacts').update({ last_message_at: new Date() }).eq('id', contact.id)
         ]);
         console.log(`[STORAGE] Incoming message stored under Contact ID: ${contact.id}`);
 
@@ -201,11 +200,10 @@ async function startWhatsApp() {
             const state = pendingTimers.get(phoneNumber);
             if (state.timeoutId) {
                 clearTimeout(state.timeoutId);
-                state.timeoutId = null; // Fix: Ensure the next if block understands no timer is active
+                state.timeoutId = null;
                 state.bundleMessages.push(msg);
                 console.log(`[BUNDLING] Added message to existing bundle for ${phoneNumber}. Total: ${state.bundleMessages.length}`);
             } else {
-                // Currently processing or in AI delay - push to NEXT bundle
                 state.bundleMessages.push(msg);
                 console.log(`[BUNDLING] New message arrived during AI phase. Waiting to start/reset next timer...`);
             }
@@ -284,8 +282,8 @@ async function startWhatsApp() {
                             console.log(`[OUTGOING] to ${phoneNumber}: "${finalReply}"`);
                             await sendSock.sendMessage(sender, { text: finalReply });
                             
-                            await prisma.chat.create({
-                                data: { contactId: contact.id, message: finalReply, direction: "OUTGOING" }
+                            await supabase.from('chats').insert({
+                                contact_id: contact.id, message: finalReply, direction: "OUTGOING"
                             });
                             console.log(`[STORAGE] AI response stored for ${phoneNumber}: "${finalReply}"`);
                         } catch (err) {
@@ -297,9 +295,9 @@ async function startWhatsApp() {
                 }
 
                 // Insight check
-                const finalCount = await prisma.chat.count({ where: { contactId: contact.id } });
+                const { count: finalCount } = await supabase.from('chats').select('*', { count: 'exact', head: true }).eq('contact_id', contact.id);
                 console.log(`[INSIGHT] Message count for ${phoneNumber}: ${finalCount}`);
-                if (finalCount % INSIGHT_THRESHOLD === 0) {
+                if (finalCount && finalCount % INSIGHT_THRESHOLD === 0) {
                     console.log(`[INSIGHT] Threshold reached (${INSIGHT_THRESHOLD}). Generating summary...`);
                     generateAndStoreInsight(contact.id, phoneNumber);
                 }

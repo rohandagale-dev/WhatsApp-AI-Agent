@@ -33,10 +33,10 @@ async function buildDynamicPrompt(contactId, latestMessageText) {
         });
 
         // 4. Format Components
-        
+
         // My Persona
         const myPersona = relation.myPersona || persona.systemPrompt || "You are a helpful AI assistant.";
-        
+
         // My Dictionary (max 100 words)
         let dictionaryText = "";
         if (relation.myDictionary) {
@@ -63,32 +63,32 @@ async function buildDynamicPrompt(contactId, latestMessageText) {
 
         // 5. Assemble the prompt string in the exact order requested
         const dynamicPrompt = `
-SYSTEM PROMPT
+            SYSTEM PROMPT
 
-MY PERSONA:
-${myPersona}
+            MY PERSONA:
+            ${myPersona}
 
-MY DICTIONARY:
-${dictionaryText}
+            MY DICTIONARY:
+            ${dictionaryText}
 
-USER'S PERSONA:
-${userPersona}
+            USER'S PERSONA:
+            ${userPersona}
 
-PREVIOUS CONVERSATION SUMMARY:
-${latestInsight ? latestInsight.summary : "No long-term summary available yet."}
+            PREVIOUS CONVERSATION SUMMARY:
+            ${latestInsight ? latestInsight.summary : "No long-term summary available yet."}
 
-STYLE:
-${style}
+            STYLE:
+            ${style}
 
-RULES:
-${rules}
+            RULES:
+            ${rules}
 
-LAST 20 MESSAGES (HISTORY):
-${history || "No previous history."}
+            LAST 20 MESSAGES (HISTORY):
+            ${history || "No previous history."}
 
-LATEST MESSAGE (REPLY TO THIS):
-${latestMessageText}
-        `.trim();
+            LATEST MESSAGE (REPLY TO THIS):
+            ${latestMessageText}
+                    `.trim();
 
         return dynamicPrompt;
     } catch (error) {

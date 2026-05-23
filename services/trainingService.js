@@ -1,4 +1,4 @@
-const { PrismaClient } = require("@prisma/client");
+const { supabase } = require("./supabaseClient");
 const readline = require("readline");
 require("dotenv").config();
 
@@ -6,8 +6,6 @@ const { buildDynamicPrompt } = require("./promptService");
 const { generateResponse: generateGroqResponse } = require("./groqService");
 const { generateResponse: generateGeminiResponse } = require("./geminiService");
 const { generateResponse: generateOllamaResponse } = require("./ollamaService");
-
-const prisma = new PrismaClient();
 
 const rl = readline.createInterface({
     input: process.stdin,
@@ -30,48 +28,42 @@ async function getOrCreateTrainingContact() {
     }
 
     // 1. Ensure Rohan Persona exists
-    let rohanPersona = await prisma.persona.findFirst({ where: { name: "Rohan" } });
+    let { data: rohanPersonas } = await supabase.from('personas').select('*').eq('name', 'Rohan').limit(1);
+    let rohanPersona = rohanPersonas && rohanPersonas.length > 0 ? rohanPersonas[0] : null;
     
     if (!rohanPersona) {
-        rohanPersona = await prisma.persona.create({
-            data: {
-                name: "Rohan",
-                systemPrompt: rohanPrompt,
-                tone: "chill",
-                style: "conversational"
-            }
-        });
-    } else if (rohanPersona.systemPrompt !== rohanPrompt) {
+        const { data: newPersona } = await supabase.from('personas').insert({
+            name: "Rohan",
+            system_prompt: rohanPrompt,
+            tone: "chill",
+            style: "conversational"
+        }).select().single();
+        rohanPersona = newPersona;
+    } else if (rohanPersona.system_prompt !== rohanPrompt) {
         // Sync with file if it changed
-        rohanPersona = await prisma.persona.update({
-            where: { id: rohanPersona.id },
-            data: { systemPrompt: rohanPrompt }
-        });
+        const { data: updatedPersona } = await supabase.from('personas').update({
+            system_prompt: rohanPrompt
+        }).eq('id', rohanPersona.id).select().single();
+        rohanPersona = updatedPersona;
     }
 
     // 2. Fetch or create Training Contact
-    let contact = await prisma.contact.findUnique({
-        where: { phone: TRAINING_PHONE },
-        include: { persona: true }
-    });
+    let { data: contact } = await supabase.from('contacts').select('*, persona:personas(*)').eq('phone', TRAINING_PHONE).maybeSingle();
 
     if (!contact) {
         console.log("Creating training contact with Rohan persona...");
-        contact = await prisma.contact.create({
-            data: { 
-                phone: TRAINING_PHONE, 
-                name: "Training User",
-                personaId: rohanPersona.id 
-            },
-            include: { persona: true }
-        });
-    } else if (contact.personaId !== rohanPersona.id) {
+        const { data: newContact } = await supabase.from('contacts').insert({
+            phone: TRAINING_PHONE, 
+            name: "Training User",
+            persona_id: rohanPersona.id 
+        }).select('*, persona:personas(*)').single();
+        contact = newContact;
+    } else if (contact.persona_id !== rohanPersona.id) {
         // Ensure it uses Rohan persona
-        contact = await prisma.contact.update({
-            where: { id: contact.id },
-            data: { personaId: rohanPersona.id },
-            include: { persona: true }
-        });
+        const { data: updatedContact } = await supabase.from('contacts').update({
+            persona_id: rohanPersona.id
+        }).eq('id', contact.id).select('*, persona:personas(*)').single();
+        contact = updatedContact;
     }
     
     return contact;
@@ -90,7 +82,6 @@ async function startTraining() {
         rl.question("You: ", async (input) => {
             if (input.toLowerCase() === "exit") {
                 console.log("Ending training session.");
-                await prisma.$disconnect();
                 process.exit(0);
             }
 
@@ -101,12 +92,10 @@ async function startTraining() {
 
             try {
                 // 1. Log incoming message (User)
-                await prisma.chat.create({
-                    data: {
-                        contactId: contact.id,
-                        message: input,
-                        direction: "INCOMING"
-                    }
+                await supabase.from('chats').insert({
+                    contact_id: contact.id,
+                    message: input,
+                    direction: "INCOMING"
                 });
 
                 // 2. Build dynamic prompt
@@ -137,12 +126,10 @@ async function startTraining() {
                     console.log(`[TOKEN CONSUMPTION] 📥 Input: ${usage.promptTokens} | 📤 Output: ${usage.completionTokens} | 📊 Total: ${usage.totalTokens}\n`);
 
                     // 4. Log outgoing message (AI/Rohan)
-                    await prisma.chat.create({
-                        data: {
-                            contactId: contact.id,
-                            message: text,
-                            direction: "OUTGOING"
-                        }
+                    await supabase.from('chats').insert({
+                        contact_id: contact.id,
+                        message: text,
+                        direction: "OUTGOING"
                     });
                 } else {
                     console.error("AI failed to respond.");

@@ -1,36 +1,31 @@
 require('dotenv').config();
-const { PrismaClient } = require('@prisma/client');
+const { supabase } = require('../services/supabaseClient');
 const { generateResponse: generateGeminiResponse } = require('../services/geminiService');
 const { generateResponse: generateGroqResponse } = require('../services/groqService');
 
-const prisma = new PrismaClient();
-
 async function addChatMessage(contactId, message, direction) {
-    return await prisma.chat.create({
-        data: {
-            contactId,
-            message,
-            direction
-        }
-    });
+    const { data } = await supabase.from('chats').insert({
+        contact_id: contactId,
+        message,
+        direction
+    }).select().single();
+    return data;
 }
 
 async function getAIResponse(contact, userMessage) {
-    // Fetch past conversations for context (now matching the updated contextLimit = 5)
     const contextLimit = 5;
-    const pastChats = await prisma.chat.findMany({
-        where: { contactId: contact.id },
-        orderBy: { createdAt: "desc" },
-        take: contextLimit
-    });
+    const { data: pastChats } = await supabase.from('chats')
+        .select('*')
+        .eq('contact_id', contact.id)
+        .order('created_at', { ascending: false })
+        .limit(contextLimit);
 
-    const history = pastChats.reverse().map(chat => ({
+    const history = (pastChats || []).reverse().map(chat => ({
         role: chat.direction === "INCOMING" ? "user" : "assistant",
         content: chat.message
     }));
 
-    // Build the dynamic system prompt exactly как in whatsappService.js
-    const persona = contact.persona || {};
+    const persona = (contact.persona && contact.persona.length > 0) ? contact.persona[0] : (contact.persona || {});
     const systemPromptTemplate = `You are an AI WhatsApp assistant representing Rohan.
 
 Your behavior is defined by the following persona:
@@ -60,26 +55,21 @@ Core Instructions:
         aiResponse = await generateGeminiResponse(userMessage, history);
     }
     
-    console.log(`AI Response: ${aiResponse}`);
+    console.log(`AI Response: ${aiResponse.text || aiResponse}`);
     return aiResponse;
 }
 
 async function runScreenshotDemo() {
-    const phoneNumber = "918485078050"; // Rohan's number
+    const phoneNumber = "918485078050"; 
     
-    // 1. Fetch Contact
-    let contact = await prisma.contact.findUnique({
-        where: { phone: phoneNumber },
-        include: { persona: true }
-    });
+    let { data: contact } = await supabase.from('contacts').select('*, persona:personas(*)').eq('phone', phoneNumber).maybeSingle();
 
     if (!contact) {
         console.error("Contact not found! Run seed.js first.");
         return;
     }
 
-    // 2. Clear previous chats for this test to keep it clean
-    await prisma.chat.deleteMany({ where: { contactId: contact.id } });
+    await supabase.from('chats').delete().eq('contact_id', contact.id);
 
     console.log(`\n=== Starting Screenshot Mimicry for ${phoneNumber} ===`);
 
@@ -104,7 +94,6 @@ async function runScreenshotDemo() {
         await addChatMessage(contact.id, step.msg, step.dir);
     }
 
-    // 3. Now trigger the AI for a NEW message to see if it remembers the Prisma/Miro context
     const lastUserMessage = "wait actually miro is better na?";
     console.log(`\nUser: ${lastUserMessage}`);
     await addChatMessage(contact.id, lastUserMessage, "INCOMING");
@@ -114,12 +103,9 @@ async function runScreenshotDemo() {
 
 async function runShortReactionDemo() {
     const phoneNumber = "918485078050"; 
-    let contact = await prisma.contact.findUnique({
-        where: { phone: phoneNumber },
-        include: { persona: true }
-    });
+    let { data: contact } = await supabase.from('contacts').select('*, persona:personas(*)').eq('phone', phoneNumber).maybeSingle();
 
-    await prisma.chat.deleteMany({ where: { contactId: contact.id } });
+    await supabase.from('chats').delete().eq('contact_id', contact.id);
 
     console.log(`\n=== Starting Short Reaction Mimicry for ${phoneNumber} ===`);
 
@@ -148,12 +134,9 @@ async function runShortReactionDemo() {
 
 async function runEmotionalDemo() {
     const phoneNumber = "918485078050"; 
-    let contact = await prisma.contact.findUnique({
-        where: { phone: phoneNumber },
-        include: { persona: true }
-    });
+    let { data: contact } = await supabase.from('contacts').select('*, persona:personas(*)').eq('phone', phoneNumber).maybeSingle();
 
-    await prisma.chat.deleteMany({ where: { contactId: contact.id } });
+    await supabase.from('chats').delete().eq('contact_id', contact.id);
 
     console.log(`\n=== Starting Emotional/Friendship Mimicry for ${phoneNumber} ===`);
 
@@ -184,12 +167,9 @@ async function runEmotionalDemo() {
 
 async function runSlangBanterDemo() {
     const phoneNumber = "918485078050"; 
-    let contact = await prisma.contact.findUnique({
-        where: { phone: phoneNumber },
-        include: { persona: true }
-    });
+    let { data: contact } = await supabase.from('contacts').select('*, persona:personas(*)').eq('phone', phoneNumber).maybeSingle();
 
-    await prisma.chat.deleteMany({ where: { contactId: contact.id } });
+    await supabase.from('chats').delete().eq('contact_id', contact.id);
 
     console.log(`\n=== Starting Slang Banter Mimicry for ${phoneNumber} ===`);
 
@@ -221,7 +201,7 @@ async function runAllTests() {
     await runShortReactionDemo();
     await runEmotionalDemo();
     await runSlangBanterDemo();
-    await prisma.$disconnect();
+    process.exit(0);
 }
 
 runAllTests().catch(console.error);
