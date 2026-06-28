@@ -10,12 +10,18 @@ const { buildDynamicPrompt } = require("./promptService");
 let currentSock = null;
 const pendingTimers = new Map();
 
-// Configuration: Timing parameters in milliseconds
-const RESPONSE_DELAY_MAX = 45 * 1000;          // 45 seconds
-const RESPONSE_DELAY_MIN = 20 * 1000;          // 20 seconds
+// Response Delay: Maximum and minimum delay between messages
+const RESPONSE_DELAY_MAX = 45 * 1000;
+const RESPONSE_DELAY_MIN = 20 * 1000;
+
+// Message Context Window: Number of messages to consider for the dynamic prompt
 const MESSAGE_CONTEXT_WINDOW = 15;
-const INSIGHT_THRESHOLD = 20;                  // Generate summary every 20 messages
-const MESSAGE_COLLECTION_DELAY = 30 * 1000;    // 30 seconds bundle window
+
+// Insight Threshold: Number of messages to generate a summary
+const INSIGHT_THRESHOLD = 20;
+
+// Message Collection Delay: Time to wait before processing a bundle of messages
+const MESSAGE_COLLECTION_DELAY = 30 * 1000;
 
 async function startWhatsApp() {
     const { state, saveCreds } = await useMultiFileAuthState("auth");
@@ -31,6 +37,7 @@ async function startWhatsApp() {
         browser: ["Ubuntu", "Chrome", "20.0.04"]
     });
 
+    // -------------------------------- Handle connection updates with WhatsApp -------------------------------- //
     sock.ev.on("connection.update", async (update) => {
         const { qr, connection, lastDisconnect } = update;
 
@@ -68,6 +75,7 @@ async function startWhatsApp() {
         }
     });
 
+    // -------------------------------- Handle credential updates -------------------------------- //
     sock.ev.on("creds.update", saveCreds);
 
     /**
@@ -109,7 +117,7 @@ async function startWhatsApp() {
                     .from('chats')
                     .select('*', { count: 'exact', head: true })
                     .eq('contact_id', contactId);
-                
+
                 if (countErr) throw countErr;
 
                 await supabase.from('insights').insert({
@@ -124,12 +132,13 @@ async function startWhatsApp() {
         }
     }
 
-    //------------------------------ Incoming Message Controller ------------------------------//
+    // -------------------------------- Incoming Message Controller -------------------------------- //
     sock.ev.on("messages.upsert", async (m) => {
         const msg = m.messages[0];
         console.log("------------------- NEW INCOMING MESSAGE -------------------");
         console.log("WhatsApp Message Object:", JSON.stringify(msg, null, 2));
 
+        // Ignore status messages, broadcast messages, and group messages
         if (!msg.message || msg.key.remoteJid === 'status@broadcast' || msg.broadcast || msg.key.remoteJid.endsWith('@g.us')) return;
 
         const sender = msg.key.remoteJid;
@@ -142,37 +151,65 @@ async function startWhatsApp() {
         if (!text) return;
 
         // 1. Fetch or create Contact and Persona
-        let { data: contact } = await supabase
+        let { data: contact, error: contactError } = await supabase
             .from('contacts')
             .select('*, persona:personas(*), relationPerson:relation_persons(*)')
             .eq('phone', phoneNumber)
             .maybeSingle();
 
+        if (contactError) {
+            console.error("❌ Error fetching contact from Supabase:", contactError.message);
+            if (contactError.message.includes("Could not find the table")) {
+                console.error("👉 Please make sure that you have successfully executed the SQL schema (supabase_schema.sql) in your Supabase Dashboard SQL Editor.");
+            }
+            return;
+        }
+
         if (!contact) {
             console.log(`Creating new contact for ${phoneNumber}...`);
-            let { data: targetPersonas } = await supabase.from('personas').select('*').eq('name', 'Rohan').limit(1);
+            let { data: targetPersonas, error: personaErr } = await supabase.from('personas').select('*').eq('name', 'Rohan').limit(1);
+            if (personaErr) {
+                console.error("❌ Error querying personas from Supabase:", personaErr.message);
+                return;
+            }
             let targetPersona = targetPersonas && targetPersonas.length > 0 ? targetPersonas[0] : null;
-            
+
             if (!targetPersona) {
-                let { data: defPersonas } = await supabase.from('personas').select('*').eq('name', 'Default').limit(1);
+                let { data: defPersonas, error: defPersonaErr } = await supabase.from('personas').select('*').eq('name', 'Default').limit(1);
+                if (defPersonaErr) {
+                    console.error("❌ Error querying default personas from Supabase:", defPersonaErr.message);
+                    return;
+                }
                 targetPersona = defPersonas && defPersonas.length > 0 ? defPersonas[0] : null;
             }
 
             if (!targetPersona) {
                 console.log("Creating default persona...");
-                const { data: newPersona } = await supabase.from('personas').insert({
-                    name: "Default",
-                    tone: "chill",
-                    style: "conversational",
-                    system_prompt: "You are Rohan, chill and slightly sarcastic. Reply briefly."
+                const { data: newPersona, error: insertPersonaErr } = await supabase.from('personas').insert({
+                    name: "Default"
                 }).select().single();
+
+                if (insertPersonaErr) {
+                    console.error("❌ Error creating default persona in Supabase:", insertPersonaErr.message);
+                    return;
+                }
                 targetPersona = newPersona;
             }
-            
-            const { data: newContact } = await supabase.from('contacts').insert({
+
+            if (!targetPersona) {
+                console.error("❌ Could not resolve or create a valid target persona.");
+                return;
+            }
+
+            const { data: newContact, error: insertContactErr } = await supabase.from('contacts').insert({
                 phone: phoneNumber,
                 persona_id: targetPersona.id
             }).select('*, persona:personas(*), relationPerson:relation_persons(*)').single();
+
+            if (insertContactErr) {
+                console.error("❌ Error creating new contact in Supabase:", insertContactErr.message);
+                return;
+            }
             contact = newContact;
         }
         console.log(`[CONTACT] Loaded contact for ${phoneNumber} (ID: ${contact.id})`);
@@ -218,96 +255,96 @@ async function startWhatsApp() {
 
         const state = pendingTimers.get(phoneNumber);
         if (!state.timeoutId) {
-            console.log(`[BUNDLE] Starting ${MESSAGE_COLLECTION_DELAY/1000}s silence window for ${phoneNumber}...`);
+            console.log(`[BUNDLE] Starting ${MESSAGE_COLLECTION_DELAY / 1000}s silence window for ${phoneNumber}...`);
             state.timeoutId = setTimeout(async () => {
                 const currentProcessId = Date.now();
                 state.processId = currentProcessId;
-                state.timeoutId = null; 
+                state.timeoutId = null;
 
                 // SNAPSHOT the current bundle and clear it for the next one
                 const currentBatch = [...state.bundleMessages];
-                state.bundleMessages = []; 
+                state.bundleMessages = [];
 
                 console.log(`[AI] Processing batch of ${currentBatch.length} messages for ${phoneNumber}...`);
-            
-            // 1. Build the Dynamic System Prompt
-            const combinedBatchText = currentBatch.map(m => m.message.conversation || m.message.extendedTextMessage?.text || "(media)").join("\n");
-            const dynamicSystemPrompt = await buildDynamicPrompt(contact.id, combinedBatchText);
 
-            console.log("--- AI Dynamic Prompt ---");
-            console.log(dynamicSystemPrompt);
-            console.log("-----------------------------------------------");
+                // 1. Build the Dynamic System Prompt
+                const combinedBatchText = currentBatch.map(m => m.message.conversation || m.message.extendedTextMessage?.text || "(media)").join("\n");
+                const dynamicSystemPrompt = await buildDynamicPrompt(contact.id, combinedBatchText);
 
-            const messages = [{
-                role: "system",
-                content: dynamicSystemPrompt
-            }];
+                console.log("--- AI Dynamic Prompt ---");
+                console.log(dynamicSystemPrompt);
+                console.log("-----------------------------------------------");
 
-            console.log("--- AI Messages (Dynamic System Prompt) ---");
-            console.log(JSON.stringify(messages, null, 2));
-            console.log("-----------------------------------------------");
+                const messages = [{
+                    role: "system",
+                    content: dynamicSystemPrompt
+                }];
 
-            const aiVersion = process.env.AI_VERSION || 'v1';
-            console.log(`[AI] Requesting response using version: ${aiVersion === 'v2' ? 'Groq (Llama 3)' : 'Gemini'}`);
-            let aiResponse;
+                console.log("--- AI Messages (Dynamic System Prompt) ---");
+                console.log(JSON.stringify(messages, null, 2));
+                console.log("-----------------------------------------------");
 
-            // Use the last message in currentBatch as the "text" prompt for compatibility
-            const lastMessageText = currentBatch[currentBatch.length - 1]?.message?.conversation || 
-                                   currentBatch[currentBatch.length - 1]?.message?.extendedTextMessage?.text || 
-                                   "(media)";
+                const aiVersion = process.env.AI_VERSION || 'v1';
+                console.log(`[AI] Requesting response using version: ${aiVersion === 'v2' ? 'Groq (Llama 3)' : 'Gemini'}`);
+                let aiResponse;
 
-            if (aiVersion === 'v3') {
-                aiResponse = await generateOllamaResponse(lastMessageText, messages);
-            } else if (aiVersion === 'v2') {
-                aiResponse = await generateGroqResponse(lastMessageText, messages);
-            } else {
-                aiResponse = await generateGeminiResponse(lastMessageText, messages);
-            }
+                // Use the last message in currentBatch as the "text" prompt for compatibility
+                const lastMessageText = currentBatch[currentBatch.length - 1]?.message?.conversation ||
+                    currentBatch[currentBatch.length - 1]?.message?.extendedTextMessage?.text ||
+                    "(media)";
 
-            if (aiResponse && aiResponse.text) {
-                console.log("AI Response Raw Content:", aiResponse.text);
-                const { text, usage } = aiResponse;
-                console.log(`[TOKEN USAGE] In: ${usage.promptTokens} | Out: ${usage.completionTokens} | Total: ${usage.totalTokens}`);
-                
-                const finalReply = text.trim();
-                
-                if (finalReply && !finalReply.toLowerCase().includes("negative")) {
-                    const randomDelay = Math.floor(Math.random() * (RESPONSE_DELAY_MAX - RESPONSE_DELAY_MIN + 1)) + RESPONSE_DELAY_MIN;
-                    console.log(`[DELAY] Waiting ${Math.round(randomDelay/1000)}s before sending reply to ${phoneNumber}...`);
-                    await new Promise(resolve => setTimeout(resolve, randomDelay));
-
-                    const sendSock = currentSock || sock;
-                    if (sendSock) {
-                        try {
-                            console.log(`[OUTGOING] to ${phoneNumber}: "${finalReply}"`);
-                            await sendSock.sendMessage(sender, { text: finalReply });
-                            
-                            await supabase.from('chats').insert({
-                                contact_id: contact.id, message: finalReply, direction: "OUTGOING"
-                            });
-                            console.log(`[STORAGE] AI response stored for ${phoneNumber}: "${finalReply}"`);
-                        } catch (err) {
-                            console.error(`Send error:`, err.message);
-                        }
-                    }
+                if (aiVersion === 'v3') {
+                    aiResponse = await generateOllamaResponse(lastMessageText, messages);
+                } else if (aiVersion === 'v2') {
+                    aiResponse = await generateGroqResponse(lastMessageText, messages);
                 } else {
-                    console.log(`[AI] Response was "negative" or empty. Skipping response for ${phoneNumber}.`);
+                    aiResponse = await generateGeminiResponse(lastMessageText, messages);
                 }
 
-                // Insight check
-                const { count: finalCount } = await supabase.from('chats').select('*', { count: 'exact', head: true }).eq('contact_id', contact.id);
-                console.log(`[INSIGHT] Message count for ${phoneNumber}: ${finalCount}`);
-                if (finalCount && finalCount % INSIGHT_THRESHOLD === 0) {
-                    console.log(`[INSIGHT] Threshold reached (${INSIGHT_THRESHOLD}). Generating summary...`);
-                    generateAndStoreInsight(contact.id, phoneNumber);
-                }
+                if (aiResponse && aiResponse.text) {
+                    console.log("AI Response Raw Content:", aiResponse.text);
+                    const { text, usage } = aiResponse;
+                    console.log(`[TOKEN USAGE] In: ${usage.promptTokens} | Out: ${usage.completionTokens} | Total: ${usage.totalTokens}`);
 
-                pendingTimers.delete(phoneNumber);
-            } else {
-                console.error("AI response invalid.");
-                pendingTimers.delete(phoneNumber);
-            }
-        }, MESSAGE_COLLECTION_DELAY);
+                    const finalReply = text.trim();
+
+                    if (finalReply && !finalReply.toLowerCase().includes("negative")) {
+                        const randomDelay = Math.floor(Math.random() * (RESPONSE_DELAY_MAX - RESPONSE_DELAY_MIN + 1)) + RESPONSE_DELAY_MIN;
+                        console.log(`[DELAY] Waiting ${Math.round(randomDelay / 1000)}s before sending reply to ${phoneNumber}...`);
+                        await new Promise(resolve => setTimeout(resolve, randomDelay));
+
+                        const sendSock = currentSock || sock;
+                        if (sendSock) {
+                            try {
+                                console.log(`[OUTGOING] to ${phoneNumber}: "${finalReply}"`);
+                                await sendSock.sendMessage(sender, { text: finalReply });
+
+                                await supabase.from('chats').insert({
+                                    contact_id: contact.id, message: finalReply, direction: "OUTGOING"
+                                });
+                                console.log(`[STORAGE] AI response stored for ${phoneNumber}: "${finalReply}"`);
+                            } catch (err) {
+                                console.error(`Send error:`, err.message);
+                            }
+                        }
+                    } else {
+                        console.log(`[AI] Response was "negative" or empty. Skipping response for ${phoneNumber}.`);
+                    }
+
+                    // Insight check
+                    const { count: finalCount } = await supabase.from('chats').select('*', { count: 'exact', head: true }).eq('contact_id', contact.id);
+                    console.log(`[INSIGHT] Message count for ${phoneNumber}: ${finalCount}`);
+                    if (finalCount && finalCount % INSIGHT_THRESHOLD === 0) {
+                        console.log(`[INSIGHT] Threshold reached (${INSIGHT_THRESHOLD}). Generating summary...`);
+                        generateAndStoreInsight(contact.id, phoneNumber);
+                    }
+
+                    pendingTimers.delete(phoneNumber);
+                } else {
+                    console.error("AI response invalid.");
+                    pendingTimers.delete(phoneNumber);
+                }
+            }, MESSAGE_COLLECTION_DELAY);
         }
     });
 }

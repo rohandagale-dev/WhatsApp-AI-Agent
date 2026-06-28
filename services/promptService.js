@@ -1,16 +1,17 @@
-const { PrismaClient } = require("@prisma/client");
-const prisma = new PrismaClient();
+const { supabase } = require("./supabaseClient");
 
 async function buildDynamicPrompt(contactId, latestMessageText) {
     try {
         // 1. Fetch Contact, Persona, and RelationPerson
-        const contact = await prisma.contact.findUnique({
-            where: { id: contactId },
-            include: {
-                relationPerson: true,
-                persona: true
-            }
-        });
+        const { data: contact, error: contactError } = await supabase
+            .from('contacts')
+            .select('*, persona:personas(*), relationPerson:relation_persons(*)')
+            .eq('id', contactId)
+            .maybeSingle();
+
+        if (contactError) {
+            throw contactError;
+        }
 
         if (!contact) {
             throw new Error(`Contact not found: ${contactId}`);
@@ -20,44 +21,58 @@ async function buildDynamicPrompt(contactId, latestMessageText) {
         const persona = contact.persona || {};
 
         // 2. Fetch Last 20 messages (with timestamp)
-        const messages = await prisma.chat.findMany({
-            where: { contactId },
-            orderBy: { createdAt: "desc" },
-            take: 20
-        });
+        const { data: messages, error: messagesError } = await supabase
+            .from('chats')
+            .select('*')
+            .eq('contact_id', contactId)
+            .order('created_at', { ascending: false })
+            .limit(20);
+
+        if (messagesError) {
+            throw messagesError;
+        }
 
         // 3. Fetch Latest Insight (Summary)
-        const latestInsight = await prisma.insight.findFirst({
-            where: { contactId },
-            orderBy: { createdAt: "desc" }
-        });
+        const { data: insights, error: insightsError } = await supabase
+            .from('insights')
+            .select('*')
+            .eq('contact_id', contactId)
+            .order('created_at', { ascending: false })
+            .limit(1);
+
+        if (insightsError) {
+            throw insightsError;
+        }
+
+        const latestInsight = insights && insights.length > 0 ? insights[0] : null;
 
         // 4. Format Components
 
         // My Persona
-        const myPersona = relation.myPersona || persona.systemPrompt || "You are a helpful AI assistant.";
+        const myPersona = relation.my_persona || "You are Rohan, chill, sarcastic and supportive. Reply briefly.";
 
         // My Dictionary (max 100 words)
         let dictionaryText = "";
-        if (relation.myDictionary) {
-            const words = relation.myDictionary.split(",").map(w => w.trim());
+        if (relation.my_dictionary) {
+            const words = relation.my_dictionary.split(",").map(w => w.trim());
             const cappedWords = words.slice(0, 100);
             dictionaryText = cappedWords.join(", ");
         }
 
         // Users' Persona
-        const userPersona = relation.userPersona || contact.notes || "A WhatsApp user.";
+        const userPersona = relation.user_persona || contact.notes || "A WhatsApp user.";
 
         // Style
-        const style = relation.style || persona.style || "Natural and brief.";
+        const style = relation.style || "Natural and brief.";
 
         // Rules
         const rules = relation.rules || "Stay in character, match the user's tone, and be helpful.";
 
         // Last 20 Messages with Timestamp
         // We display them in chronological order
-        const history = messages.reverse().map(m => {
-            const timestamp = m.createdAt.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
+        const history = (messages || []).reverse().map(m => {
+            const dateObj = new Date(m.created_at);
+            const timestamp = dateObj.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
             return `[${timestamp}] ${m.direction === "INCOMING" ? "User" : "Assistant"}: ${m.message}`;
         }).join("\n");
 

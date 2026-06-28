@@ -25,13 +25,11 @@ async function getAIResponse(contact, userMessage) {
         content: chat.message
     }));
 
-    const persona = (contact.persona && contact.persona.length > 0) ? contact.persona[0] : (contact.persona || {});
-    const systemPromptTemplate = `You are an AI WhatsApp assistant representing Rohan.
+    const relation = contact.relationPerson || {};
+    const systemPromptTemplate = relation.my_persona || `You are an AI WhatsApp assistant representing Rohan.
 
 Your behavior is defined by the following persona:
-- Tone: ${persona.tone || 'friendly'}
-- Style: ${persona.style || 'conversational'}
-- Language: ${persona.language || 'english'}
+- Style: ${relation.style || 'conversational'}
 
 Core Instructions:
 - Respond naturally like a human, not like an AI. No "As an AI..." crap.
@@ -62,7 +60,7 @@ Core Instructions:
 async function runScreenshotDemo() {
     const phoneNumber = "918485078050"; 
     
-    let { data: contact } = await supabase.from('contacts').select('*, persona:personas(*)').eq('phone', phoneNumber).maybeSingle();
+    let { data: contact } = await supabase.from('contacts').select('*, persona:personas(*), relationPerson:relation_persons(*)').eq('phone', phoneNumber).maybeSingle();
 
     if (!contact) {
         console.error("Contact not found! Run seed.js first.");
@@ -103,7 +101,7 @@ async function runScreenshotDemo() {
 
 async function runShortReactionDemo() {
     const phoneNumber = "918485078050"; 
-    let { data: contact } = await supabase.from('contacts').select('*, persona:personas(*)').eq('phone', phoneNumber).maybeSingle();
+    let { data: contact } = await supabase.from('contacts').select('*, persona:personas(*), relationPerson:relation_persons(*)').eq('phone', phoneNumber).maybeSingle();
 
     await supabase.from('chats').delete().eq('contact_id', contact.id);
 
@@ -134,7 +132,7 @@ async function runShortReactionDemo() {
 
 async function runEmotionalDemo() {
     const phoneNumber = "918485078050"; 
-    let { data: contact } = await supabase.from('contacts').select('*, persona:personas(*)').eq('phone', phoneNumber).maybeSingle();
+    let { data: contact } = await supabase.from('contacts').select('*, persona:personas(*), relationPerson:relation_persons(*)').eq('phone', phoneNumber).maybeSingle();
 
     await supabase.from('chats').delete().eq('contact_id', contact.id);
 
@@ -167,7 +165,7 @@ async function runEmotionalDemo() {
 
 async function runSlangBanterDemo() {
     const phoneNumber = "918485078050"; 
-    let { data: contact } = await supabase.from('contacts').select('*, persona:personas(*)').eq('phone', phoneNumber).maybeSingle();
+    let { data: contact } = await supabase.from('contacts').select('*, persona:personas(*), relationPerson:relation_persons(*)').eq('phone', phoneNumber).maybeSingle();
 
     await supabase.from('chats').delete().eq('contact_id', contact.id);
 

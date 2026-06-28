@@ -33,22 +33,13 @@ async function getOrCreateTrainingContact() {
     
     if (!rohanPersona) {
         const { data: newPersona } = await supabase.from('personas').insert({
-            name: "Rohan",
-            system_prompt: rohanPrompt,
-            tone: "chill",
-            style: "conversational"
+            name: "Rohan"
         }).select().single();
         rohanPersona = newPersona;
-    } else if (rohanPersona.system_prompt !== rohanPrompt) {
-        // Sync with file if it changed
-        const { data: updatedPersona } = await supabase.from('personas').update({
-            system_prompt: rohanPrompt
-        }).eq('id', rohanPersona.id).select().single();
-        rohanPersona = updatedPersona;
     }
 
     // 2. Fetch or create Training Contact
-    let { data: contact } = await supabase.from('contacts').select('*, persona:personas(*)').eq('phone', TRAINING_PHONE).maybeSingle();
+    let { data: contact } = await supabase.from('contacts').select('*, persona:personas(*), relationPerson:relation_persons(*)').eq('phone', TRAINING_PHONE).maybeSingle();
 
     if (!contact) {
         console.log("Creating training contact with Rohan persona...");
@@ -56,14 +47,31 @@ async function getOrCreateTrainingContact() {
             phone: TRAINING_PHONE, 
             name: "Training User",
             persona_id: rohanPersona.id 
-        }).select('*, persona:personas(*)').single();
+        }).select('*, persona:personas(*), relationPerson:relation_persons(*)').single();
         contact = newContact;
     } else if (contact.persona_id !== rohanPersona.id) {
         // Ensure it uses Rohan persona
         const { data: updatedContact } = await supabase.from('contacts').update({
             persona_id: rohanPersona.id
-        }).eq('id', contact.id).select('*, persona:personas(*)').single();
+        }).eq('id', contact.id).select('*, persona:personas(*), relationPerson:relation_persons(*)').single();
         contact = updatedContact;
+    }
+
+    // 3. Sync system prompt and style into relation_persons for the training contact
+    let relation = contact.relationPerson;
+    if (!relation) {
+        const { data: newRelation } = await supabase.from('relation_persons').insert({
+            contact_id: contact.id,
+            my_persona: rohanPrompt,
+            style: "conversational"
+        }).select().single();
+        contact.relationPerson = newRelation;
+    } else if (relation.my_persona !== rohanPrompt || relation.style !== "conversational") {
+        const { data: updatedRelation } = await supabase.from('relation_persons').update({
+            my_persona: rohanPrompt,
+            style: "conversational"
+        }).eq('id', relation.id).select().single();
+        contact.relationPerson = updatedRelation;
     }
     
     return contact;
