@@ -1,6 +1,0 @@
-[dotenv@17.3.1] injecting env (5) from .env -- tip: 🛡️ auth for agents: https://vestauth.com
---- Testing Groq Model Integration ---
-Sending prompt: "Hi, how are you?"
-Using model: qwen/qwen3-32b
-Error generating response from Groq: 403 {"error":{"message":"The model `qwen/qwen3-32b` is blocked at the organization level. Please have the org admin enable this model in the org settings at https://console.groq.com/settings/limits","type":"permissions_error","code":"model_permission_blocked_org"}}
---- Test Failed: No response received ---
