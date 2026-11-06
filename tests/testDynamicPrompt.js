@@ -1,5 +1,6 @@
 const { buildDynamicPrompt } = require("../services/promptService");
 const { supabase } = require("../services/supabaseClient");
+const { saveMany } = require("../services/chatStore");
 
 async function test() {
     console.log("--- Testing Dynamic Prompt Builder ---");
@@ -41,10 +42,21 @@ async function test() {
     const { count: existingChats } = await supabase.from('chats').select('*', { count: 'exact', head: true }).eq('contact_id', contact.id);
 
     if (existingChats < 2) {
-        await supabase.from('chats').insert([
-            { contact_id: contact.id, message: "Hello Sparky!", direction: "INCOMING" },
-            { contact_id: contact.id, message: "Ahoy! What brings ye to this sector?", direction: "OUTGOING" }
-        ]);
+        // Invented pirate filler for the prompt builder: 'mock', never a style exemplar.
+        // created_at is explicit because one batch insert would otherwise give both
+        // rows the same transaction clock and leave their order undefined.
+        const startedAt = Date.now() - 2 * 60 * 1000;
+        await saveMany([
+            { message: "Hello Sparky!", direction: "INCOMING" },
+            { message: "Ahoy! What brings ye to this sector?", direction: "OUTGOING" }
+        ].map((msg, i) => ({
+            contactId: contact.id,
+            message: msg.message,
+            direction: msg.direction,
+            source: 'mock',
+            extra: { seed: 'testDynamicPrompt' },
+            createdAt: new Date(startedAt + i * 60 * 1000).toISOString()
+        })));
     }
 
     // 4. Build Dynamic Prompt

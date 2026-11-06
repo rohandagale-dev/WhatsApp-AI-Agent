@@ -1,4 +1,4 @@
-require('dotenv').config();
+require('./loadEnv');
 const express = require('express')
 const { startWhatsApp } = require('./services/whatsappService')
 

@@ -6,3 +6,6 @@ node_modules
 
 # auth
 auth
+# whatsapp chat exports - private conversation history, never commit
+whatsapp_exports
+*.txt.bak

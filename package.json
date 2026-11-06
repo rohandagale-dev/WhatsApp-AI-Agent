@@ -15,9 +15,18 @@
   "type": "commonjs",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node server.js",
+    "test": "npm run test:sanitize && npm run test:schedule",
     "train": "node services/trainingService.js",
-    "train:reset": "node scripts/seedTrainingHistory.js"
+    "train:reset": "node scripts/seedTrainingHistory.js",
+    "import:whatsapp": "node scripts/importWhatsAppExport.js",
+    "derive:dictionary": "node scripts/deriveDictionary.js",
+    "seed:mock": "node scripts/seedMockChats.js",
+    "test:history": "node tests/testHistoryWindow.js",
+    "test:prompt": "node tests/testDynamicPrompt.js",
+    "test:sanitize": "node tests/testSanitizeReply.js",
+    "test:schedule": "node tests/testScheduleExtract.js",
+    "mimic": "node tests/mimicChat.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.104.1",

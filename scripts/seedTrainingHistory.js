@@ -1,4 +1,5 @@
 const { supabase } = require("../services/supabaseClient");
+const { saveMany } = require("../services/chatStore");
 
 const TRAINING_PHONE = "0000000000";
 
@@ -25,6 +26,9 @@ async function main() {
     // 3. (Optional) Seed with a few messages to set up a Scheduling test
     console.log("Seeding with new 'Scheduling' scenario...");
     
+    // These lines are written by hand for the scheduling test, not taken from a
+    // real thread, so they are 'mock': useful as conversation context but never
+    // as an example of how Rohan actually writes.
     const seedMessages = [
         { message: "hi rohan", direction: "INCOMING" },
         { message: "Ha bol", direction: "OUTGOING" },
@@ -32,15 +36,20 @@ async function main() {
         { message: "Sahi hai, chalte hai.", direction: "OUTGOING" }
     ];
 
-    for (const msg of seedMessages) {
-        await supabase.from('chats').insert({
-            contact_id: contact.id,
-            message: msg.message,
-            direction: msg.direction
-        });
-    }
+    // One batch insert shares a single transaction clock, so created_at is written
+    // explicitly (a minute apart, ending now) to keep ORDER BY created_at stable.
+    const startedAt = Date.now() - seedMessages.length * 60 * 1000;
 
-    console.log("Seeded 4 new messages.");
+    await saveMany(seedMessages.map((msg, i) => ({
+        contactId: contact.id,
+        message: msg.message,
+        direction: msg.direction,
+        source: "mock",
+        extra: { seed: "seedTrainingHistory", scenario: "scheduling" },
+        createdAt: new Date(startedAt + i * 60 * 1000).toISOString()
+    })));
+
+    console.log(`Seeded ${seedMessages.length} new messages.`);
     console.log("History reset complete. You can now run 'npm run train' to test the scheduling logic.");
 }
 

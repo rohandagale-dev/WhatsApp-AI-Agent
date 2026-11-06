@@ -1,4 +1,4 @@
-require('dotenv').config();
+require('../loadEnv');
 const { generateResponse } = require('../services/groqService');
 
 async function testGroq() {
@@ -11,9 +11,21 @@ async function testGroq() {
 
     try {
         const response = await generateResponse(prompt, history);
-        console.log("Response:", response);
+
+        // Contract: success is { ok:true, text }, failure is { ok:false, text:null, error }.
+        if (response && response.ok && response.text) {
+            console.log("\n--- Groq Response ---");
+            console.log(response.text);
+            console.log("---------------------");
+            console.log("Usage:", response.usage);
+            console.log("Test PASSED!");
+        } else {
+            console.error(`Test FAILED: ${(response && response.error) || 'no response from provider'}`);
+            process.exitCode = 1;
+        }
     } catch (error) {
         console.error("Test failed:", error);
+        process.exitCode = 1;
     }
 }
 
