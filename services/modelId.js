@@ -39,7 +39,7 @@
  */
 const PROVIDERS = {
     v1: { label: 'Gemini', envVar: 'GEMINI_MODEL', defaultModel: 'gemini-2.5-flash' },
-    v2: { label: 'Groq', envVar: 'GROQ_MODEL', defaultModel: 'groq/compound' },
+    v2: { label: 'Groq', envVar: 'GROQ_MODEL', defaultModel: 'openai/gpt-oss-120b' },
     v3: { label: 'Ollama', envVar: 'OLLAMA_MODEL', defaultModel: 'llama3.1:8b' }
 };
 

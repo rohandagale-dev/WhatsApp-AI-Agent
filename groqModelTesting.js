@@ -5,7 +5,7 @@ const { generateResponse } = require('./services/groqService');
 // Keep this in sync with that file: the whole point of this script is to report
 // which model answered, so a banner naming a model that was never called is
 // worse than no banner at all.
-const SERVICE_DEFAULT_MODEL = 'groq/compound';
+const SERVICE_DEFAULT_MODEL = 'openai/gpt-oss-120b';
 
 function resolveModel() {
     const configured = process.env.GROQ_MODEL;

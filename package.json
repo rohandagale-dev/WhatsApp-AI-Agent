@@ -16,7 +16,7 @@
   "main": "index.js",
   "scripts": {
     "start": "node server.js",
-    "test": "npm run test:sanitize && npm run test:schedule",
+    "test": "npm run test:sanitize && npm run test:schedule && npm run test:observe && npm run test:persona && npm run test:v4 && npm run test:mood",
     "train": "node services/trainingService.js",
     "train:reset": "node scripts/seedTrainingHistory.js",
     "import:whatsapp": "node scripts/importWhatsAppExport.js",
@@ -26,6 +26,10 @@
     "test:prompt": "node tests/testDynamicPrompt.js",
     "test:sanitize": "node tests/testSanitizeReply.js",
     "test:schedule": "node tests/testScheduleExtract.js",
+    "test:observe": "node tests/testObservationMode.js",
+    "test:persona": "node tests/testPromptPersona.js",
+    "test:v4": "node tests/testPromptV4.js",
+    "test:mood": "node tests/testMood.js",
     "mimic": "node tests/mimicChat.js"
   },
   "dependencies": {

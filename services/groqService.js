@@ -101,7 +101,8 @@ async function generateResponse(prompt, history = []) {
             console.log("----------------------------------------\n");
         }
 
-        const model = process.env.GROQ_MODEL || "groq/compound";
+        // Default was groq/compound until Groq shut it down on 2026-09-21.
+        const model = process.env.GROQ_MODEL || "openai/gpt-oss-120b";
 
         const request = {
             messages: finalMessages,

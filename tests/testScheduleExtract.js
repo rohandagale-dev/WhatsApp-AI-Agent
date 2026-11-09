@@ -638,7 +638,7 @@ function runModelIdResolver() {
         set('GROQ_MODEL', undefined);
         set('OLLAMA_MODEL', undefined);
         check('v1 default matches geminiService', modelId.resolveModelId('v1') === 'gemini-2.5-flash');
-        check('v2 default matches groqService', modelId.resolveModelId('v2') === 'groq/compound');
+        check('v2 default matches groqService', modelId.resolveModelId('v2') === 'openai/gpt-oss-120b');
         check('v3 default matches ollamaService', modelId.resolveModelId('v3') === 'llama3.1:8b');
         check('an unknown AI_VERSION falls back to v1', modelId.resolveModelId('v9') === 'gemini-2.5-flash');
         check('an undefined AI_VERSION falls back to v1', modelId.resolveModelId(undefined) === 'gemini-2.5-flash');
@@ -652,7 +652,7 @@ function runModelIdResolver() {
         check('a padded GEMINI_MODEL is trimmed',
             modelId.resolveModelId('v1') === 'gemini-2.5-pro', modelId.resolveModelId('v1'));
         set('GROQ_MODEL', ' \t ');
-        check('whitespace-only GROQ_MODEL resolves to the default', modelId.resolveModelId('v2') === 'groq/compound');
+        check('whitespace-only GROQ_MODEL resolves to the default', modelId.resolveModelId('v2') === 'openai/gpt-oss-120b');
         set('OLLAMA_MODEL', '\n');
         check('whitespace-only OLLAMA_MODEL resolves to the default', modelId.resolveModelId('v3') === 'llama3.1:8b');
 
